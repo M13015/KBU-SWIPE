@@ -155,16 +155,51 @@ function render(videos) {
 document.getElementById("soundBtn").addEventListener("click", () => { muted = !muted; renderSound(); });
 renderSound();
 
-fetch("videos.json", { cache: "no-cache" })
-  .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then((data) => {
-    channel = data.channel || channel;
-    document.getElementById("channel").textContent = channel;
-    document.title = channel;
-    if (!data.videos || !data.videos.length) { showEmpty("Bientôt de nouvelles vidéos", "Cette chaîne n'a pas encore publié. Reviens un peu plus tard."); return; }
-    render(data.videos);
-  })
-  .catch(() => showEmpty("Impossible de charger les vidéos", "Recharge la page dans un instant."));
+const REPO = "m13015/KBU-SWIPE"; // propriétaire/dépôt GitHub
+const MEDIA = /\.(mp4|webm|mov|m4v|jpe?g|png|webp|gif|avif)$/i;
+
+function repoPath() {
+  if (REPO) return REPO;
+  const host = location.hostname;
+  if (!host.endsWith(".github.io")) return "";
+  const owner = host.split(".")[0];
+  const first = location.pathname.split("/").filter(Boolean)[0];
+  return owner + "/" + (first && !/\.html?$/i.test(first) ? first : owner + ".github.io");
+}
+
+async function readMeta() {
+  try {
+    const r = await fetch("videos.json", { cache: "no-cache" });
+    return r.ok ? await r.json() : {};
+  } catch (e) { return {}; }
+}
+
+async function listFiles() {
+  const repo = repoPath();
+  if (!repo) throw new Error("repo");
+  const r = await fetch("https://api.github.com/repos/" + repo + "/contents/videos", { headers: { Accept: "application/vnd.github+json" } });
+  if (!r.ok) throw new Error(r.status);
+  const items = await r.json();
+  return items.filter((i) => i.type === "file" && MEDIA.test(i.name)).map((i) => i.name);
+}
+
+(async () => {
+  const meta = await readMeta();
+  channel = meta.channel || channel;
+  document.getElementById("channel").textContent = channel;
+  document.title = channel;
+  const info = {};
+  (meta.videos || []).forEach((v) => { info[v.file] = v; });
+  let names;
+  try {
+    names = await listFiles();
+    names.sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" }));
+  } catch (e) {
+    names = (meta.videos || []).map((v) => v.file);
+  }
+  if (!names.length) { showEmpty("Bientôt de nouvelles vidéos", "Cette chaîne n'a pas encore publié. Reviens un peu plus tard."); return; }
+  render(names.map((n) => Object.assign({ file: n }, info[n] || {})));
+})();
 </script>
 </body>
 </html>
